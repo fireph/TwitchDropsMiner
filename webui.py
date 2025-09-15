@@ -141,39 +141,63 @@ class WebUIManager:
                 inventory_tab = ui.tab("Inventory", icon="inventory").classes('text-white')
 
             with ui.tab_panels(tabs, value=main_tab).classes('w-full h-full bg-gray-900'):
-                # Main tab content
+                # Main tab content - matching original GUI layout
                 with ui.tab_panel(main_tab):
-                    with ui.row().classes('w-full gap-4 p-4'):
-                        # Left column - Status and controls
-                        with ui.column().classes('w-1/3'):
-                            with ui.card().classes('bg-gray-800 border-gray-700'):
-                                ui.label("Status").classes('text-h6 text-white mb-2')
-                                manager._status_card = ui.label("Initializing...").classes('text-white')
+                    with ui.column().classes('w-full gap-2 p-4'):
+                        # Row 0: Status Bar (full width)
+                        with ui.card().classes('bg-gray-800 border-gray-700 w-full'):
+                            ui.label("Status").classes('text-h6 text-white mb-2')
+                            manager._status_card = ui.label("Initializing...").classes('text-white')
 
-                            with ui.card().classes('bg-gray-800 border-gray-700 mt-4'):
-                                ui.label("Progress").classes('text-h6 text-white mb-2')
-                                manager._progress_bar = ui.linear_progress(value=0).classes('mb-2')
-                                manager._progress_label = ui.label("No active drops").classes('text-white')
+                        # Row 1 & 2: Left side (WebSocket, Login on top row; Progress on bottom row) and Right side (Channel List spans both rows)
+                        with ui.row().classes('w-full gap-2'):
+                            # Left side: WebSocket/Login on top, Progress below
+                            with ui.column().classes('flex-1 gap-2'):
+                                # Top row: WebSocket and Login side by side
+                                with ui.row().classes('w-full gap-2'):
+                                    # WebSocket Status
+                                    with ui.card().classes('bg-gray-800 border-gray-700 flex-1'):
+                                        ui.label("WebSocket").classes('text-h6 text-white mb-2')
+                                        with ui.column().classes('gap-1'):
+                                            manager._ws_status_label = ui.label("Status: Disconnected").classes('text-body2 text-white')
+                                            manager._ws_topics_label = ui.label("Topics: 0/0").classes('text-body2 text-white')
 
-                        # Middle column - Console output
-                        with ui.column().classes('w-1/3'):
-                            with ui.card().classes('bg-gray-800 border-gray-700'):
-                                ui.label("Console Output").classes('text-h6 text-white mb-2')
-                                manager._console = ui.log(max_lines=50).classes('h-96 w-full bg-gray-900 text-green-400 font-mono text-sm p-2 rounded')
+                                    # Login Form
+                                    with ui.card().classes('bg-gray-800 border-gray-700 flex-1'):
+                                        ui.label("Login").classes('text-h6 text-white mb-2')
+                                        with ui.column().classes('gap-1'):
+                                            ui.label("Please visit the login page").classes('text-body2 text-white')
+                                            manager._login_status_label = ui.label("Not logged in").classes('text-body2 text-white')
+                                            ui.button("Login", on_click=lambda: manager.print("Login functionality not implemented in web UI")).classes('bg-blue-600 hover:bg-blue-700 mt-2')
 
-                                # Push any existing console log entries
-                                for log_entry in manager._console_log:
-                                    manager._console.push(log_entry)
+                                # Bottom row: Campaign Progress (full width of left side)
+                                with ui.card().classes('bg-gray-800 border-gray-700 w-full'):
+                                    ui.label("Campaign Progress").classes('text-h6 text-white mb-2')
+                                    with ui.column().classes('gap-2'):
+                                        manager._campaign_name_label = ui.label("No active campaign").classes('text-body1 text-white')
+                                        manager._game_name_label = ui.label("").classes('text-body2 text-gray-400')
+                                        manager._progress_bar = ui.linear_progress(value=0).classes('w-full')
+                                        manager._progress_label = ui.label("0.0%").classes('text-body2 text-white')
+                                        manager._time_remaining_label = ui.label("").classes('text-body2 text-gray-400')
 
-                        # Right column - Channels and drops info
-                        with ui.column().classes('w-1/3'):
-                            with ui.card().classes('bg-gray-800 border-gray-700'):
-                                ui.label("Active Channels").classes('text-h6 text-white mb-2')
-                                manager._channels_list = ui.column().classes('text-white')
+                                # Current Drops section (below progress, left side)
+                                with ui.card().classes('bg-gray-800 border-gray-700 w-full'):
+                                    ui.label("Current Drops").classes('text-h6 text-white mb-2')
+                                    manager._drops_list = ui.column().classes('gap-1')
+                                    with manager._drops_list:
+                                        ui.label("No active drops").classes('text-body2 text-gray-400')
 
-                            with ui.card().classes('bg-gray-800 border-gray-700 mt-4'):
-                                ui.label("Current Drops").classes('text-h6 text-white mb-2')
-                                manager._drops_list = ui.column().classes('text-white')
+                            # Right side: Channel List (spans the full height)
+                            with ui.card().classes('bg-gray-800 border-gray-700 flex-1'):
+                                ui.label("Channels").classes('text-h6 text-white mb-2')
+                                manager._channels_list = ui.column().classes('gap-1 h-64 overflow-auto')
+                                with manager._channels_list:
+                                    ui.label("No channels loaded").classes('text-body2 text-gray-400')
+
+                        # Row 3: Console Output (full width)
+                        with ui.card().classes('bg-gray-800 border-gray-700 w-full'):
+                            ui.label("Console Output").classes('text-h6 text-white mb-2')
+                            manager._console = ui.log(max_lines=50).classes('h-64 bg-gray-900 text-green-400 font-mono text-sm')
 
                 # Settings tab content
                 with ui.tab_panel(settings_tab):
