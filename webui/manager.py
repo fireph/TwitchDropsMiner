@@ -241,9 +241,9 @@ class WebUIManager:
                             self._console.push(f"{timestamp}: {line}")
                 else:
                     self._console.push(formatted_message)
-            except Exception as e:
-                # Fallback to standard print if UI update fails
-                print(f"{formatted_message} (UI update failed: {e})")
+            except Exception:
+                # Fallback to standard print if UI update fails (e.g., during shutdown)
+                print(formatted_message)
         else:
             # Fallback to standard print if UI not ready
             print(formatted_message)
