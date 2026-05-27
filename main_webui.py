@@ -43,7 +43,20 @@ if __name__ == "__main__":
     from version import __version__
     from exceptions import CaptchaRequired
     from utils import lock_file
-    from constants import LOGGING_LEVELS, SELF_PATH, FILE_FORMATTER, LOG_PATH, LOCK_PATH
+    from constants import (
+        LOGGING_LEVELS,
+        SELF_PATH,
+        FILE_FORMATTER,
+        LOG_PATH,
+        LOCK_PATH,
+        CONFIG_PATH,
+    )
+    from webui.auth import (
+        AuthManager,
+        install_auth,
+        is_auth_enabled,
+        WEBUI_AUTH_FILE,
+    )
 
     warnings.simplefilter("default", ResourceWarning)
 
@@ -227,6 +240,16 @@ if __name__ == "__main__":
         if not success:
             sys.exit(3)
 
+        # Install the WebUI login wall before ui.run() so the middleware enters
+        # the FastAPI stack before requests start arriving. Disabled when
+        # WEBUI_AUTH=off (e.g. trusted home LAN, `docker run -e WEBUI_AUTH=off`).
+        webui_auth = None
+        if is_auth_enabled():
+            webui_auth = AuthManager(CONFIG_PATH / WEBUI_AUTH_FILE)
+            install_auth(webui_auth)
+        else:
+            print("WARNING: WebUI authentication is disabled (WEBUI_AUTH=off).")
+
         host = os.environ.get("WEBUI_HOST", "0.0.0.0")
         port = os.environ.get("WEBUI_PORT", "5800")
         try:
@@ -239,15 +262,19 @@ if __name__ == "__main__":
             )
             sys.exit(1)
 
+        run_kwargs = dict(
+            host=host,
+            port=port,
+            title="Twitch Drops Miner",
+            show=False,
+            reload=False,
+            favicon=Path(__file__).parent / "icons" / "pickaxe.ico",
+        )
+        if webui_auth is not None:
+            run_kwargs["storage_secret"] = webui_auth.secret_key
+
         try:
-            ui.run(
-                host=host,
-                port=port,
-                title="Twitch Drops Miner",
-                show=False,
-                reload=False,
-                favicon=Path(__file__).parent / "icons" / "pickaxe.ico",
-            )
+            ui.run(**run_kwargs)
         except KeyboardInterrupt:
             pass
         finally:

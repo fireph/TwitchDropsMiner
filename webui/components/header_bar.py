@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from nicegui import ui
 
 from translate import _
+from webui.auth import is_auth_enabled
 
 if TYPE_CHECKING:
     from webui.manager import WebUIManager
@@ -35,6 +36,9 @@ class HeaderBar:
                 ui.label().classes(
                     "text-body1 q-px-md q-py-xs rounded-borders bg-slate-300 dark:bg-slate-800"
                 ).bind_text_from(self._manager, "_status_text")
+                if is_auth_enabled():
+                    ui.button(icon="logout", on_click=lambda: ui.navigate.to("/logout")) \
+                        .props("flat dense round").tooltip("Sign out of WebUI")
 
             with ui.tabs(value=initial_tab, on_change=on_tab_change).classes(
                 "w-full bg-slate-100 dark:bg-slate-700"

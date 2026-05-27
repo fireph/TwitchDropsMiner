@@ -50,7 +50,7 @@ python main.py
 
 ## Configuration
 
-The WebUI host and port are configured via environment variables:
+The WebUI is configured via environment variables:
 
 - **WEBUI_HOST**: Network interface to bind to (default: `0.0.0.0`)
   - `0.0.0.0` - Listen on all interfaces (accessible from other devices)
@@ -58,9 +58,15 @@ The WebUI host and port are configured via environment variables:
 
 - **WEBUI_PORT**: Port to serve on, must be an integer between 1 and 65535 (default: `5800`)
 
+- **WEBUI_AUTH**: Toggle the WebUI login wall (default: `on`)
+  - `on` (default) — requires sign-in; on first launch you're redirected to `/setup` to create a username and password, stored hashed in `config/webui_auth.json`
+  - `off`, `0`, `false`, `no` — disables the login wall entirely (only safe on a trusted LAN)
+
 ```bash
 WEBUI_HOST=127.0.0.1 WEBUI_PORT=8080 python main_webui.py
 ```
+
+For Docker, pass it as an env: `docker run -e WEBUI_AUTH=off ...`
 
 ## Features
 
@@ -85,8 +91,11 @@ The WebUI provides all the functionality of the traditional GUI:
 
 - By default, the WebUI listens on all interfaces (`0.0.0.0`), making it accessible from other devices
 - Set `WEBUI_HOST=127.0.0.1` for local-only access
-- No authentication is built-in - anyone on your network can access the interface
-- Consider firewall rules or a reverse proxy if exposing beyond your local network
+- A username/password login wall is enabled by default — set `WEBUI_AUTH=off` to disable when running on a trusted LAN
+- Credentials are stored hashed (PBKDF2-SHA256, 200 000 iterations) in `config/webui_auth.json` together with the session-cookie secret; delete the file to reset
+- The `/login` endpoint enforces per-IP exponential backoff after 5 failed attempts (up to 15 min) to slow down online brute-force
+- **Exposing the WebUI to the public internet still requires HTTPS** — put it behind a reverse proxy (nginx, Caddy, Cloudflare Tunnel, Traefik) with TLS. Without HTTPS, the password and session cookie travel in plaintext and can be sniffed
+- Strong, unique passwords matter — PBKDF2 only slows guessing, it doesn't compensate for weak passwords
 
 ## Troubleshooting
 
