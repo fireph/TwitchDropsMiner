@@ -394,10 +394,25 @@ class DropsCampaign:
         return len(self.timed_drops)
 
     @property
+    def priority_link_override(self) -> bool:
+        """
+        True when the user has enabled the advanced "priority link override"
+        setting and explicitly added this (unlinked) game to the Priority List.
+
+        This does not change Twitch's reported account-link state; Twitch may
+        still refuse to award drops for a campaign the account isn't linked to.
+        """
+        return (
+            self._twitch.settings.priority_link_override
+            and not self.linked
+            and self.game.name in self._twitch.settings.priority
+        )
+
+    @property
     def eligible(self) -> bool:
         if self.has_badge_or_emote:
             return self._twitch.settings.enable_badges_emotes
-        return self.linked
+        return self.linked or self.priority_link_override
 
     @cached_property
     def has_badge_or_emote(self) -> bool:

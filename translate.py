@@ -172,6 +172,7 @@ class GUISettingsAdvanced(TypedDict):
     warning_text: str
     enable_badges_emotes: str
     available_drops_check: str
+    priority_link_override: str
 
 
 class GUIPriorityModes(TypedDict):
@@ -391,6 +392,9 @@ default_translation: Translation = {
                 ),
                 "enable_badges_emotes": "Enable partial support for badges and emotes: ",
                 "available_drops_check": "Enable extra available drops check: ",
+                "priority_link_override": (
+                    "Mine unlinked games from the Priority List: "
+                ),
             },
             "priority_modes": {
                 "priority_only": "Priority list only",

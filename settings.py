@@ -22,6 +22,7 @@ class SettingsFile(TypedDict):
     tray_notifications: bool
     enable_badges_emotes: bool
     available_drops_check: bool
+    priority_link_override: bool
     priority_mode: PriorityMode
 
 
@@ -36,6 +37,7 @@ default_settings: SettingsFile = {
     "tray_notifications": True,
     "enable_badges_emotes": False,
     "available_drops_check": False,
+    "priority_link_override": False,
     "priority_mode": PriorityMode.PRIORITY_ONLY,
 }
 
@@ -61,6 +63,7 @@ class Settings:
     tray_notifications: bool
     enable_badges_emotes: bool
     available_drops_check: bool
+    priority_link_override: bool
     priority_mode: PriorityMode
 
     PASSTHROUGH = ("_settings", "_args", "_altered")
