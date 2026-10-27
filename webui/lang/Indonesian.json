@@ -1,9 +1,6 @@
 {
     "webui": {
         "settings": {
-            "advanced": {
-                "priority_link_override": "Tambang game tidak tertaut dari Daftar Prioritas: "
-            },
             "general": {
                 "language": "Bahasa: ",
                 "invalid_proxy": "URL proxy tidak valid"

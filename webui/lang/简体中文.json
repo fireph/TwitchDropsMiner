@@ -1,9 +1,6 @@
 {
     "webui": {
         "settings": {
-            "advanced": {
-                "priority_link_override": "从优先列表中挖掘未链接的游戏: "
-            },
             "general": {
                 "language": "语言: ",
                 "invalid_proxy": "无效的代理URL"

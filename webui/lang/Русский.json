@@ -1,9 +1,6 @@
 {
     "webui": {
         "settings": {
-            "advanced": {
-                "priority_link_override": "Добывать непривязанные игры из списка приоритетов: "
-            },
             "general": {
                 "language": "Язык: ",
                 "invalid_proxy": "Недействительный URL прокси"

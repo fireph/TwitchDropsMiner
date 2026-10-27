@@ -1,9 +1,6 @@
 {
     "webui": {
         "settings": {
-            "advanced": {
-                "priority_link_override": "優先リストから未リンクのゲームを挖掘: "
-            },
             "general": {
                 "language": "言語: ",
                 "invalid_proxy": "無効なプロキシURL"

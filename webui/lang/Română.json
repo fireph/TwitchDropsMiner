@@ -1,9 +1,6 @@
 {
     "webui": {
         "settings": {
-            "advanced": {
-                "priority_link_override": "Minează jocurile neconectate din Lista de prioritate: "
-            },
             "general": {
                 "language": "Limbă: ",
                 "invalid_proxy": "URL proxy nevalid"

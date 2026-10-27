@@ -1,9 +1,6 @@
 {
     "webui": {
         "settings": {
-            "advanced": {
-                "priority_link_override": "Nem kapcsolódó játékok bányászása a prioritási listából: "
-            },
             "general": {
                 "language": "Nyelv: ",
                 "invalid_proxy": "Érvénytelen proxy URL"

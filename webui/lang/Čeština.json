@@ -1,9 +1,6 @@
 {
     "webui": {
         "settings": {
-            "advanced": {
-                "priority_link_override": "Těžit nepropojené hry ze seznamu priorit: "
-            },
             "general": {
                 "language": "Jazyk: ",
                 "invalid_proxy": "Neplatná URL proxy"
