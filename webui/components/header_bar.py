@@ -24,17 +24,19 @@ class HeaderBar:
 
     def build(self, initial_tab: str, on_tab_change):
         """Build the header UI for the current NiceGUI client."""
-        with ui.header().classes(
-            "flex-col items-stretch p-0 gap-0 text-black! dark:text-white!"
-        ):
+        # Colours come from webui.themes (see `apply`), which overrides the
+        # Quasar primary header background per theme. The tdm-* classes are
+        # only hooks; keeping the palette in one module avoids a second,
+        # hardcoded blue-grey (slate) palette here.
+        with ui.header().classes("tdm-header flex-col items-stretch p-0 gap-0"):
             with ui.row().classes(
-                "w-full items-center q-px-lg q-py-md bg-slate-200 dark:bg-slate-900"
+                "tdm-header-row w-full items-center q-px-lg q-py-md"
             ):
                 ui.image("/icons/pickaxe.ico").classes("w-8 h-8")
                 ui.label("Twitch Drops Miner").classes("text-h6")
                 ui.space()
                 ui.label().classes(
-                    "text-body1 q-px-md q-py-xs rounded-borders bg-slate-300 dark:bg-slate-800"
+                    "tdm-header-pill text-body1 q-px-md q-py-xs rounded-borders"
                 ).bind_text_from(self._manager, "_status_text")
                 if AuthManager.AUTH_ENABLED:
                     ui.button(
@@ -43,7 +45,7 @@ class HeaderBar:
                     ).props("dense flat round").classes("ml-2")
 
             with ui.tabs(value=initial_tab, on_change=on_tab_change).classes(
-                "w-full bg-slate-100 dark:bg-slate-700"
+                "tdm-tabstrip w-full"
             ) as tabs:
                 ui.tab("main", label=_("gui", "tabs", "main"), icon="home")
                 ui.tab(

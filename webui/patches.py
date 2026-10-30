@@ -15,6 +15,7 @@ import inventory as _inventory
 import webui.translations  # noqa
 
 _settings.default_settings["priority_link_override"] = False  # type: ignore[typeddict-unknown-key]
+_settings.default_settings["theme"] = "dark"  # type: ignore[typeddict-unknown-key]
 
 
 def _priority_link_override_get(self) -> bool:
