@@ -58,6 +58,7 @@ from .adapters import (
 )
 from .handlers import WebUIOutputHandler
 from .html_utils import favicon_js, request_notification_permission_js
+from . import themes
 from .components import (
     BasePanel,
     MainPanel,
@@ -137,13 +138,7 @@ class WebUIManager:
         @ui.page("/")
         def index(tab: str = "main"):
             ui.page_title("Twitch Drops Miner")
-            ui.dark_mode(self._twitch.settings.dark_mode).bind_value_from(
-                self._twitch.settings, "dark_mode"
-            )
-
-            ui.colors(dark_page="var(--color-slate-800)", dark="var(--color-slate-800)")
-            ui.card.default_classes("bg-slate-100 dark:bg-slate-700")
-            ui.table.default_classes("bg-slate-100 dark:bg-slate-700")
+            themes.apply(themes.resolve(self._twitch.settings))
 
             ui.query(".nicegui-content").classes("p-0")
 
@@ -213,6 +208,23 @@ class WebUIManager:
         """Apply dark mode to all connected clients."""
         self._twitch.settings.dark_mode = enabled
         self._twitch.settings.save(force=True)
+
+    def set_theme(self, name: str) -> None:
+        """
+        Persist the chosen theme and mirror the legacy ``dark_mode`` flag.
+
+        Connected clients are reloaded because the palette is applied during page
+        construction, so existing tabs would otherwise keep the old colours.
+        """
+        if name not in themes.THEMES:
+            return
+        settings = self._twitch.settings
+        settings.theme = name  # type: ignore[attr-defined]
+        settings.dark_mode = themes.THEMES[name].dark
+        settings.save(force=True)
+        for client in app.clients():
+            with client:
+                ui.run_javascript("location.reload()")
 
     @property
     def running(self) -> bool:
