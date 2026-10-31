@@ -1,10 +1,14 @@
-"""Opt-in Chromium/Xvfb tests against a local fake Twitch service, never real credentials."""
+"""Opt-in Chromium/Xvfb tests with locally fulfilled Twitch pages."""
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -14,104 +18,100 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_real_browser_delegation_and_mfa(monkeypatch):
+def test_real_browser_upstream_redirect_and_mfa(monkeypatch, webui_auth_state):
     import zendriver as zd
-    from aiohttp import web
     from fastapi import FastAPI
 
     from constants import ClientType
+    from translate import _
     from webui import browser_display, browser_login
+    from webui.adapters.login_form import LoginFormAdapter
+    from webui.manager import WebUIManager
 
     requests = []
-    reports = []
-    native_payload = browser_login.delegated_payload
-    native_pattern = zd.cdp.fetch.RequestPattern
+    login_urls = []
+    native_get = zd.Browser.get
+    monkeypatch.setenv("WEBUI_TWITCH_LOGIN", "android-browser")
     monkeypatch.setattr(browser_display, "app", FastAPI())
+    monkeypatch.setattr(browser_login, "LOGIN_TIMEOUT", 30)
 
-    async def run():
-        async def page(request):
-            return web.Response(
-                content_type="text/html",
-                text="""<h1>Local login fixture</h1>
+    async def fixture_get(browser, url, *args, **kwargs):
+        login_urls.append(url)
+        tab = await native_get(browser, "about:blank")
+
+        async def fulfill(event):
+            # Fulfill every request locally. Nothing, including fixture
+            # credentials, goes to Twitch or any other external service.
+            path = urlsplit(event.request.url).path
+            status, content_type, body = 200, "text/html", ""
+            if path == "/login":
+                body = """<h1>Local login fixture</h1>
 <script>
 addEventListener('load', async () => {
   const payload = {username: 'fixture', password: 'fixture-password'};
   await fetch('/protected_login', {method:'POST',body:JSON.stringify(payload)});
   payload.authy_token = '123456';
-  await fetch('/protected_login', {method:'POST',body:JSON.stringify(payload)});
+  const response = await fetch('/protected_login', {method:'POST',body:JSON.stringify(payload)});
+  const result = await response.json();
+  location.href = '/#access_token=' + result.access_token;
 });
-</script>""",
-            )
+</script>"""
+            elif path == "/protected_login":
+                payload = json.loads(event.request.post_data)
+                requests.append(payload)
+                content_type = "application/json"
+                if "authy_token" in payload:
+                    body = json.dumps({"access_token": "fixture_android_token"})
+                else:
+                    status = 400
+                    body = json.dumps({"error_code": 3011})
+            await tab.send(zd.cdp.fetch.fulfill_request(
+                event.request_id,
+                status,
+                response_headers=[zd.cdp.fetch.HeaderEntry(name="Content-Type", value=content_type)],
+                body=base64.b64encode(body.encode()).decode(),
+            ))
 
-        async def authenticate(request):
-            payload = await request.json()
-            requests.append(payload)
-            if "authy_token" not in payload:
-                return web.json_response({"error_code": 3011}, status=400)
-            return web.json_response({"access_token": "fixture-android-token"})
+        tab.add_handler(zd.cdp.fetch.RequestPaused, fulfill)
+        await tab.send(zd.cdp.fetch.enable())
+        return await native_get(browser, url, *args, **kwargs)
 
-        async def validate(request):
-            assert request.headers["Authorization"] == "OAuth fixture-android-token"
-            return web.json_response(
-                {"client_id": ClientType.ANDROID_APP.CLIENT_ID, "user_id": "42"}
-            )
+    monkeypatch.setattr(zd.Browser, "get", fixture_get)
 
-        service = web.Application()
-        service.add_routes(
-            [
-                web.get("/login", page),
-                web.post("/protected_login", authenticate),
-                web.get("/validate", validate),
-            ]
+    async def run():
+        manager = SimpleNamespace(
+            main_panel=MagicMock(),
+            status=MagicMock(),
+            _twitch=SimpleNamespace(settings=SimpleNamespace(stdlog=False)),
+            _close_requested=asyncio.Event(),
+            _reload_requested=asyncio.Event(),
         )
-        runner = web.AppRunner(service)
-        await runner.setup()
-        site = web.TCPSite(runner, "127.0.0.1", 0)
-        await site.start()
-        base = f"http://127.0.0.1:{site._server.sockets[0].getsockname()[1]}"
-        # Route the real browser through the same interception code using a local
-        # provider. No fake passwords or tokens ever go to Twitch.
-        monkeypatch.setattr(browser_login, "LOGIN_URL", base + "/login")
-        monkeypatch.setattr(browser_login, "VALIDATE_URL", base + "/validate")
-        monkeypatch.setattr(browser_login, "LOGIN_TIMEOUT", 30)
-        monkeypatch.setattr(
-            browser_login,
-            "delegated_payload",
-            lambda url, method, body: native_payload(
-                url.replace(base, "https://passport.twitch.tv", 1),
-                method,
-                body,
-            ),
-        )
-        monkeypatch.setattr(
-            zd.cdp.fetch,
-            "RequestPattern",
-            lambda **kwargs: native_pattern(
-                url_pattern=base + "/protected_login*",
-            ),
-        )
-        try:
-            async with browser_display.BrowserDisplay() as display:
-                token = await browser_login.browser_login(
-                    display.display, asyncio.Event(), reports.append
-                )
-                assert token == "fixture-android-token"
-            assert not display.view_url
-            assert not display._processes
-        finally:
-            await runner.cleanup()
+        manager.print = WebUIManager.print.__get__(manager)
+        manager.coro_unless_closed = WebUIManager.coro_unless_closed.__get__(manager)
+        manager.login = LoginFormAdapter(manager)
+
+        def update(status, _user_id):
+            if status == _("gui", "login", "required"):
+                asyncio.get_running_loop().call_soon(manager.login.confirm)
+
+        manager.main_panel.update_login.side_effect = update
+        auth = webui_auth_state(SimpleNamespace(gui=manager, _client_type=ClientType.ANDROID_APP))
+        assert await asyncio.wait_for(auth._browser_login(), timeout=40) == "fixture_android_token"
+        assert not manager.login._browser_display.view_url
+        assert not manager.login._browser_display._processes
+        reports = str(manager.main_panel.push_console.call_args_list)
+        assert "fixture-password" not in reports
+        assert "fixture_android_token" not in reports
 
     asyncio.run(run())
-    assert len(requests) == 2
-    assert all(p["client_id"] == ClientType.WEB.CLIENT_ID for p in requests)
-    assert all(
-        p["delegate_client_id"] == ClientType.ANDROID_APP.CLIENT_ID for p in requests
-    )
-    assert requests[1]["authy_token"] == "123456"
-    assert any("3011" in r for r in reports)
-    assert any("validated" in r for r in reports)
-    assert "fixture-password" not in json.dumps(reports)
-    assert "fixture-android-token" not in json.dumps(reports)
+    assert len(login_urls) == 1
+    query = parse_qs(urlsplit(login_urls[0]).query)
+    assert query["client_id"] == [ClientType.ANDROID_APP.CLIENT_ID]
+    assert parse_qs(query["redirect_params"][0])["response_type"] == ["token"]
+    assert requests == [
+        {"username": "fixture", "password": "fixture-password"},
+        {"username": "fixture", "password": "fixture-password", "authy_token": "123456"},
+    ]
 
 
 def test_viewer_websocket_is_scoped_to_active_attempt(monkeypatch):
@@ -163,5 +163,63 @@ def test_viewer_websocket_is_scoped_to_active_attempt(monkeypatch):
                 ),
             ):
                 pass
+
+    asyncio.run(run())
+
+
+def test_novnc_page_connects_in_chromium(monkeypatch):
+    import socket
+
+    import uvicorn
+    import zendriver as zd
+    from fastapi import FastAPI
+
+    from webui import browser_display, browser_login
+
+    api = FastAPI()
+    monkeypatch.setattr(browser_display, "app", api)
+
+    async def run():
+        display = browser_display.BrowserDisplay()
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            port = listener.getsockname()[1]
+            server = uvicorn.Server(uvicorn.Config(api, log_level="error"))
+            server_task = asyncio.create_task(server.serve(sockets=[listener]))
+            try:
+                while not server.started:
+                    await asyncio.sleep(0.01)
+                async with display:
+                    async def connect_viewer():
+                        browser = await zd.start()
+                        tab = await browser.get(
+                            f"http://127.0.0.1:{port}{display.view_url}"
+                        )
+                        await tab.select("#noVNC_container", timeout=10)
+                        for _ in range(100):
+                            if await tab.evaluate(
+                                "document.documentElement.classList.contains('noVNC_connected')"
+                            ):
+                                return "connected"
+                            await asyncio.sleep(0.1)
+                        return await tab.evaluate(
+                            "document.getElementById('noVNC_status')?.textContent"
+                        )
+
+                    result = await asyncio.wait_for(
+                        browser_login.browser_login(
+                            connect_viewer,
+                            display.display,
+                            asyncio.Event(),
+                            lambda _message: None,
+                            on_ready=lambda _browser: None,
+                        ),
+                        timeout=30,
+                    )
+                    assert result == "connected"
+            finally:
+                server.should_exit = True
+                await server_task
 
     asyncio.run(run())

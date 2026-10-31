@@ -230,6 +230,8 @@ class WebUIManager:
         lines = [f"{stamp}: {line}" for line in message.split("\n")]
 
         self.main_panel.push_console(lines)
+        if self.login.browser_login_active:
+            self.main_panel.update_browser_login(message=message)
 
         # Mirror to stdout/file when stdlog is enabled.
         if self._twitch.settings.stdlog:
@@ -277,19 +279,20 @@ class WebUIManager:
             asyncio.create_task(self._close_requested.wait()),
             asyncio.create_task(self._reload_requested.wait()),
         ]
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        for task in pending:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-        if self._close_requested.is_set():
-            raise ExitRequest()
-        if self._reload_requested.is_set():
-            self._reload_requested.clear()
-            raise ReloadRequest()
-        return await next(iter(done))
+        try:
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            if tasks[1] in done or self._close_requested.is_set():
+                raise ExitRequest()
+            # Nested login waits may already have cleared the shared event.
+            if tasks[2] in done or self._reload_requested.is_set():
+                self._reload_requested.clear()
+                raise ReloadRequest()
+            return await tasks[0]
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def clear_drop(self):
         """Clear the current drop display"""

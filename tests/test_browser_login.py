@@ -1,268 +1,364 @@
-"""Exercise delegation, token boundaries, and cancellation without Twitch credentials."""
+"""Exercise upstream login through the WebUI adapter without Twitch credentials."""
 
 from __future__ import annotations
 
 import asyncio
-import base64
-import json
+import subprocess
 import sys
+from contextlib import asynccontextmanager
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from urllib.parse import parse_qs, urlsplit
 
+import aiohttp
 import pytest
+import zendriver as zd
 
 from constants import ClientType
-from webui import browser_login as login
+from exceptions import ExitRequest, ReloadRequest
+from translate import _
+from webui import browser_display, browser_login
+from webui.adapters.login_form import LoginFormAdapter
+from webui.manager import WebUIManager
 
 
-@pytest.mark.parametrize(
-    "path", ["/protected_login", "/protected_login/shim?trusted_request=true"]
-)
-def test_delegation_preserves_password_and_mfa(path):
-    original = {
-        "username": "test-account",
-        "password": "test-password",
-        "remember_me": True,
-        "authy_token": "123456",
-        "twitchguard_code": "654321",
-        "captcha": {"proof": "proof"},
-        "client_id": ClientType.WEB.CLIENT_ID,
-    }
-    body = login.delegated_payload(
-        "https://passport.twitch.tv" + path, "POST", json.dumps(original)
+async def eventually(predicate):
+    async def wait():
+        while not predicate():
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(wait(), timeout=2)
+
+
+@pytest.fixture
+def login_context(monkeypatch, webui_auth_state):
+    monkeypatch.setenv("WEBUI_TWITCH_LOGIN", "android-browser")
+    display = MagicMock(display=":123", view_url="/browser-login/view/test")
+    display.__aenter__ = AsyncMock(return_value=display)
+    display.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(browser_display, "BrowserDisplay", lambda: display)
+    manager = SimpleNamespace(
+        main_panel=MagicMock(),
+        status=MagicMock(),
+        _twitch=SimpleNamespace(settings=SimpleNamespace(stdlog=False)),
     )
-    assert json.loads(body) == {
-        **original,
-        "delegate_client_id": ClientType.ANDROID_APP.CLIENT_ID,
-    }
+    manager.print = WebUIManager.print.__get__(manager)
+    manager.coro_unless_closed = WebUIManager.coro_unless_closed.__get__(manager)
+    manager.login = LoginFormAdapter(manager)
+    twitch = SimpleNamespace(gui=manager, _client_type=ClientType.ANDROID_APP)
+    auth = webui_auth_state(twitch)
+    return SimpleNamespace(auth=auth, twitch=twitch, manager=manager, display=display)
 
 
-@pytest.mark.parametrize(
-    "url,method",
-    [
-        ("https://passport.twitch.tv/protected_login", "OPTIONS"),
-        ("https://passport.twitch.tv/protected_register", "POST"),
-        ("https://passport.twitch.tv/protected_login/unknown", "POST"),
-        ("https://passport.twitch.tv.evil.example/protected_login", "POST"),
-        ("http://passport.twitch.tv/protected_login", "POST"),
-        ("https://gql.twitch.tv/gql", "POST"),
-    ],
-)
-def test_other_requests_are_untouched(url, method):
-    assert login.delegated_payload(url, method, "not-json") is None
+@pytest.fixture
+def fake_browser(monkeypatch):
+    browsers = []
 
-
-@pytest.mark.parametrize("body", [None, "not-json", "[]", '{"password":"do-not-log"}'])
-def test_unrecognized_login_stops_without_exposing_body(body):
-    with pytest.raises(login.BrowserLoginError) as exc:
-        login.delegated_payload(
-            "https://passport.twitch.tv/protected_login", "POST", body
+    def create(config):
+        browser = SimpleNamespace(
+            config=config,
+            stopped=False,
+            main_tab=SimpleNamespace(url="about:blank"),
+            targets=[],
+            start=AsyncMock(),
         )
-    assert "do-not-log" not in str(exc.value)
+
+        async def get(url):
+            browser.main_tab.url = url
+            return browser.main_tab
+
+        async def stop():
+            browser.stopped = True
+
+        browser.get = AsyncMock(side_effect=get)
+        browser.stop = AsyncMock(side_effect=stop)
+        browser.native_stop = browser.stop
+        browser.test_connection = AsyncMock(side_effect=lambda: not browser.stopped)
+        browsers.append(browser)
+        return browser
+
+    monkeypatch.setattr(zd, "Config", lambda **kwargs: SimpleNamespace(**kwargs))
+    monkeypatch.setattr(zd, "Browser", create)
+    return browsers
 
 
-def mock_validation(monkeypatch, data, status=200):
-    response = SimpleNamespace(status=status, json=AsyncMock(return_value=data))
-    request = MagicMock()
-    request.__aenter__ = AsyncMock(return_value=response)
-    request.__aexit__ = AsyncMock(return_value=False)
-    session = MagicMock()
-    session.get.return_value = request
-    context = MagicMock()
-    context.__aenter__ = AsyncMock(return_value=session)
-    context.__aexit__ = AsyncMock(return_value=False)
-    monkeypatch.setattr(login.aiohttp, "ClientSession", MagicMock(return_value=context))
-    return session
+def initialize_events(context):
+    context.manager._close_requested = asyncio.Event()
+    context.manager._reload_requested = asyncio.Event()
 
 
-def test_android_token_is_validated_without_logging_it(monkeypatch):
-    session = mock_validation(
-        monkeypatch, {"client_id": ClientType.ANDROID_APP.CLIENT_ID, "user_id": "42"}
+async def start_attempt(context, browsers):
+    previous = len(browsers)
+    await eventually(
+        lambda: context.manager.main_panel.update_login.called
+        and context.manager.main_panel.update_login.call_args.args[0]
+        == _("gui", "login", "required")
     )
-    reports = []
-    asyncio.run(login.validate_android_token("private-test-token", reports.append))
-    session.get.assert_called_once_with(
-        login.VALIDATE_URL,
-        headers={"Authorization": "OAuth private-test-token"},
-        allow_redirects=False,
-    )
-    assert "ANDROID_APP" in reports[-1]
-    assert "private-test-token" not in " ".join(reports)
+    context.manager.login.confirm()
+    await eventually(lambda: len(browsers) > previous and browsers[-1].get.called)
+    return browsers[-1]
 
 
-@pytest.mark.parametrize("client_id", [ClientType.WEB.CLIENT_ID, "other-client", None])
-def test_non_android_token_is_rejected(monkeypatch, client_id):
-    mock_validation(monkeypatch, {"client_id": client_id, "user_id": "42"})
-    with pytest.raises(login.BrowserLoginError, match="not Android"):
-        asyncio.run(login.validate_android_token("test-token", MagicMock()))
-
-
-@pytest.mark.parametrize(
-    "data", [[], {}, {"client_id": ClientType.ANDROID_APP.CLIENT_ID}]
-)
-def test_incomplete_validation_cannot_login(monkeypatch, data):
-    mock_validation(monkeypatch, data)
-    with pytest.raises(login.BrowserLoginError):
-        asyncio.run(login.validate_android_token("test-token", MagicMock()))
-
-
-def test_rejected_validation_cannot_login(monkeypatch):
-    mock_validation(monkeypatch, {}, status=401)
-    with pytest.raises(login.BrowserLoginError, match="HTTP 401"):
-        asyncio.run(login.validate_android_token("test-token", MagicMock()))
-
-
-def fake_browser(monkeypatch, navigate):
-    """Use the browser API boundary, leaving the complete async login flow intact."""
-
-    def command(name):
-        return lambda *args, **kwargs: (name, args, kwargs)
-
-    fetch = SimpleNamespace(
-        RequestPaused=object(),
-        RequestPattern=SimpleNamespace,
-        **{
-            name: command(name)
-            for name in (
-                "enable",
-                "continue_request",
-                "get_response_body",
-                "fail_request",
-            )
-        },
-    )
-    tab = SimpleNamespace(closed=False, commands=[], body="", callback=None)
-
-    async def send(cmd):
-        tab.commands.append(cmd)
-        if cmd[0] == "get_response_body":
-            return tab.body, False
-
-    def add_handler(_event, callback):
-        tab.callback = callback
-
-    async def get(url):
-        await navigate(tab)
-        return tab
-
-    tab.send = send
-    tab.add_handler = add_handler
-    tab.get = get
-    browser = SimpleNamespace(
-        stopped=False,
-        start=AsyncMock(),
-        stop=AsyncMock(),
-        get=AsyncMock(return_value=tab),
-    )
-    module = SimpleNamespace(
-        Config=lambda **kw: kw,
-        Browser=lambda config: browser,
-        cdp=SimpleNamespace(
-            fetch=fetch,
-            network=SimpleNamespace(ErrorReason=SimpleNamespace(ABORTED="Aborted")),
-        ),
-    )
-    monkeypatch.setitem(sys.modules, "zendriver", module)
-    return browser, tab
-
-
-def login_event(request_id, status=None):
-    return SimpleNamespace(
-        request_id=request_id,
-        response_status_code=status,
-        response_error_reason=None,
-        request=SimpleNamespace(
-            url="https://passport.twitch.tv/protected_login",
-            method="POST",
-            post_data=json.dumps(
-                {"username": "test", "password": "never-log", "authy_token": "123456"}
-            ),
-        ),
+def messages(context):
+    return "\n".join(
+        line
+        for call in context.manager.main_panel.push_console.call_args_list
+        for line in call.args[0]
     )
 
 
-def test_full_login_handles_mfa_and_captures_only_its_response(monkeypatch):
-    async def navigate(tab):
-        for request_id, status, result in [
-            ("one", 400, {"error_code": 3011}),
-            ("unrelated", 200, {"access_token": "wrong-token"}),
-            ("two", 200, {"access_token": "right-token"}),
-        ]:
-            if request_id != "unrelated":
-                await tab.callback(login_event(request_id))
-            tab.body = json.dumps(result)
-            await tab.callback(login_event(request_id, status))
+def assert_clean(context, browser, native_start):
+    browser.native_stop.assert_awaited_once()
+    assert zd.start is native_start
+    assert not context.manager.login.browser_login_active
+    context.manager.main_panel.update_browser_login.assert_called_with(url="", starting=False)
+    assert not [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
 
-    browser, tab = fake_browser(monkeypatch, navigate)
-    validator = AsyncMock()
-    monkeypatch.setattr(login, "validate_android_token", validator)
-    reports = []
+
+def test_upstream_android_redirect_flow(login_context, fake_browser):
+    native_start = zd.start
 
     async def run():
-        return await login.browser_login(":123", asyncio.Event(), reports.append)
+        initialize_events(login_context)
+        task = asyncio.create_task(login_context.auth._browser_login())
+        browser = await start_attempt(login_context, fake_browser)
+        url = urlsplit(browser.main_tab.url)
+        assert url.scheme == "https"
+        assert url.netloc == "www.twitch.tv"
+        assert url.path == "/login"
+        query = parse_qs(url.query)
+        assert query["client_id"] == [ClientType.ANDROID_APP.CLIENT_ID]
+        assert parse_qs(query["redirect_params"][0]) == {
+            "client_id": [ClientType.ANDROID_APP.CLIENT_ID],
+            "redirect_uri": ["https://www.twitch.tv/"],
+            "response_type": ["token"],
+        }
+        assert "--display=:123" in browser.config.browser_args
+        assert browser.config.browser_connection_max_tries == 60
+        # MFA remains entirely in Twitch's page until it redirects.
+        browser.main_tab.url = "https://www.twitch.tv/login?screen=two_factor"
+        await asyncio.sleep(0)
+        assert not task.done()
+        browser.main_tab.url = "https://www.twitch.tv/#access_token=fixture_token&scope="
+        assert await asyncio.wait_for(task, timeout=2) == "fixture_token"
+        assert "fixture_token" not in messages(login_context)
+        login_context.display.__aexit__.assert_awaited_once()
+        assert_clean(login_context, browser, native_start)
 
-    assert asyncio.run(run()) == "right-token"
-    validator.assert_awaited_once_with("right-token", reports.append)
-    browser.stop.assert_awaited_once()
-    submissions = [
-        c for c in tab.commands if c[0] == "continue_request" and "post_data" in c[2]
-    ]
-    assert len(submissions) == 2
-    for _, _, kwargs in submissions:
-        body = json.loads(base64.b64decode(kwargs["post_data"]))
-        assert body["client_id"] == ClientType.WEB.CLIENT_ID
-        assert body["delegate_client_id"] == ClientType.ANDROID_APP.CLIENT_ID
-        assert body["authy_token"] == "123456"
-        assert kwargs["intercept_response"] is True
-    assert any("3011" in r for r in reports)
-    assert not any(
-        secret in " ".join(reports)
-        for secret in ("never-log", "right-token", "wrong-token")
-    )
+    asyncio.run(run())
 
 
-@pytest.mark.parametrize("cancel_mode", ["button", "shutdown", "timeout"])
-def test_browser_is_closed_on_cancellation(monkeypatch, cancel_mode):
-    ready = None
-
-    async def navigate(tab):
-        ready.set()
-
-    browser, _ = fake_browser(monkeypatch, navigate)
-    if cancel_mode == "timeout":
-        monkeypatch.setattr(login, "LOGIN_TIMEOUT", 0.02)
+@pytest.mark.parametrize("mode", ["cancel", "timeout", "task", "close", "reload"])
+def test_cancellation_cleans_browser_and_all_waiters(
+    monkeypatch, login_context, fake_browser, mode
+):
+    native_start = zd.start
+    if mode == "timeout":
+        monkeypatch.setattr(browser_login, "LOGIN_TIMEOUT", 0.05)
 
     async def run():
-        nonlocal ready
-        ready = asyncio.Event()
-        cancel = asyncio.Event()
-        task = asyncio.create_task(login.browser_login(":123", cancel, lambda _: None))
-        await ready.wait()
-        if cancel_mode == "button":
-            cancel.set()
-        elif cancel_mode == "shutdown":
+        initialize_events(login_context)
+        task = asyncio.create_task(login_context.auth._browser_login())
+        browser = await start_attempt(login_context, fake_browser)
+        if mode == "cancel":
+            login_context.manager.login.cancel_browser_login()
+        elif mode == "task":
             task.cancel()
-        with pytest.raises(
-            asyncio.CancelledError
-            if cancel_mode == "shutdown"
-            else login.BrowserLoginError
-        ):
+        elif mode == "close":
+            login_context.manager._close_requested.set()
+        elif mode == "reload":
+            login_context.manager._reload_requested.set()
+        if mode in ("cancel", "timeout"):
+            await eventually(lambda: login_context.display.__aexit__.await_count == 1)
+            await eventually(lambda: not login_context.manager.login.browser_login_active)
+            assert "cancelled" in messages(login_context) or "timed out" in messages(login_context)
+            task.cancel()
+        error = {"close": ExitRequest, "reload": ReloadRequest}.get(mode, asyncio.CancelledError)
+        with pytest.raises(error):
             await task
+        assert_clean(login_context, browser, native_start)
 
     asyncio.run(run())
-    browser.stop.assert_awaited_once()
 
 
-def test_browser_failure_does_not_log_protocol_payload(monkeypatch):
-    async def navigate(tab):
-        raise RuntimeError("password=secret-token=secret")
+@pytest.mark.parametrize("failure", ["closed", "missing", "protocol", "cancel"])
+def test_failed_attempt_can_retry(monkeypatch, login_context, fake_browser, failure):
+    native_start = zd.start
+    native_factory = zd.Browser
 
-    browser, _ = fake_browser(monkeypatch, navigate)
+    def factory(config):
+        browser = native_factory(config)
+        if len(fake_browser) == 1:
+            if failure == "missing":
+                browser.start.side_effect = FileNotFoundError("browser not installed")
+            elif failure == "protocol":
+                browser.get.side_effect = RuntimeError("private-token-must-not-be-logged")
+        return browser
+
+    monkeypatch.setattr(zd, "Browser", factory)
 
     async def run():
-        with pytest.raises(login.BrowserLoginError) as exc:
-            await login.browser_login(":123", asyncio.Event(), lambda _: None)
-        assert "secret" not in str(exc.value)
+        initialize_events(login_context)
+        task = asyncio.create_task(login_context.auth._browser_login())
+        await eventually(lambda: login_context.manager.main_panel.update_login.called)
+        login_context.manager.login.confirm()
+        await eventually(lambda: bool(fake_browser))
+        first = fake_browser[0]
+        if failure in ("closed", "cancel"):
+            await eventually(lambda: first.get.called)
+            if failure == "closed":
+                first.stopped = True
+            else:
+                login_context.manager.login.cancel_browser_login()
+        await eventually(lambda: login_context.display.__aexit__.await_count == 1)
+        await eventually(lambda: not login_context.manager.login.browser_login_active)
+        first.native_stop.assert_awaited_once()
+        assert zd.start is native_start
+        assert "private-token-must-not-be-logged" not in messages(login_context)
+        if failure == "missing":
+            assert _("login", "browser", "not_found") in messages(login_context)
+        browser = await start_attempt(login_context, fake_browser)
+        browser.main_tab.url = "https://www.twitch.tv/#access_token=retry_token"
+        assert await asyncio.wait_for(task, timeout=2) == "retry_token"
+        assert login_context.display.__aexit__.await_count == 2
+        assert_clean(login_context, browser, native_start)
 
     asyncio.run(run())
-    browser.stop.assert_awaited_once()
+
+
+def test_cancel_during_browser_start(monkeypatch, login_context, fake_browser):
+    native_start = zd.start
+    native_factory = zd.Browser
+
+    async def stalled_start():
+        await asyncio.Event().wait()
+
+    def factory(config):
+        browser = native_factory(config)
+        browser.start.side_effect = stalled_start
+        return browser
+
+    monkeypatch.setattr(zd, "Browser", factory)
+
+    async def run():
+        initialize_events(login_context)
+        task = asyncio.create_task(login_context.auth._browser_login())
+        await eventually(lambda: login_context.manager.main_panel.update_login.called)
+        login_context.manager.login.confirm()
+        await eventually(lambda: bool(fake_browser) and fake_browser[0].start.called)
+        login_context.manager.login.cancel_browser_login()
+        await eventually(lambda: login_context.display.__aexit__.await_count == 1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert_clean(login_context, fake_browser[0], native_start)
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("mode", ["cancel", "task", "close", "reload"])
+def test_cancellation_during_browser_cleanup(login_context, fake_browser, mode):
+    native_start = zd.start
+
+    async def run():
+        initialize_events(login_context)
+        task = asyncio.create_task(login_context.auth._browser_login())
+        browser = await start_attempt(login_context, fake_browser)
+        stopping = asyncio.Event()
+
+        async def slow_stop():
+            stopping.set()
+            await asyncio.sleep(0.05)
+            browser.stopped = True
+
+        browser.native_stop.side_effect = slow_stop
+        browser.main_tab.url = "https://www.twitch.tv/#access_token=fixture_token"
+        await asyncio.wait_for(stopping.wait(), timeout=2)
+        if mode == "cancel":
+            login_context.manager.login.cancel_browser_login()
+            await eventually(lambda: login_context.display.__aexit__.await_count == 1)
+            task.cancel()
+        elif mode == "task":
+            task.cancel()
+        elif mode == "close":
+            login_context.manager._close_requested.set()
+        elif mode == "reload":
+            login_context.manager._reload_requested.set()
+
+        error = {"close": ExitRequest, "reload": ReloadRequest}.get(mode, asyncio.CancelledError)
+        with pytest.raises(error):
+            await task
+        assert browser.stopped
+        assert_clean(login_context, browser, native_start)
+
+    asyncio.run(run())
+
+
+def test_upstream_validation_and_saved_session(monkeypatch, tmp_path, login_context, fake_browser):
+    import twitch
+
+    monkeypatch.setattr(twitch, "COOKIES_PATH", tmp_path / "cookies.jar")
+
+    async def run():
+        initialize_events(login_context)
+        jar = aiohttp.CookieJar()
+        jar.update_cookies({"unique_id": "fixture_device"}, ClientType.ANDROID_APP.CLIENT_URL)
+        jar.save = MagicMock()
+        login_context.twitch.get_session = AsyncMock(return_value=SimpleNamespace(cookie_jar=jar))
+        login_context.manager.help = MagicMock()
+        requests = []
+
+        @asynccontextmanager
+        async def request(method, url, **kwargs):
+            if url == ClientType.ANDROID_APP.CLIENT_URL:
+                yield SimpleNamespace(text=AsyncMock(return_value="fixture page"))
+                return
+            requests.append((method, url, kwargs))
+            assert url == "https://id.twitch.tv/oauth2/validate"
+            assert kwargs["headers"]["Authorization"] == "OAuth fixture_token"
+            yield SimpleNamespace(
+                status=200,
+                json=AsyncMock(return_value={"client_id": ClientType.ANDROID_APP.CLIENT_ID, "user_id": "42"}),
+            )
+
+        login_context.twitch.request = request
+        task = asyncio.create_task(login_context.auth._validate())
+        browser = await start_attempt(login_context, fake_browser)
+        browser.main_tab.url = "https://www.twitch.tv/#access_token=fixture_token"
+        await asyncio.wait_for(task, timeout=2)
+        assert login_context.auth.user_id == 42
+        assert login_context.auth._logged_in.is_set()
+        assert jar.filter_cookies(ClientType.ANDROID_APP.CLIENT_URL)["auth-token"].value == "fixture_token"
+        jar.save.assert_called_once_with(tmp_path / "cookies.jar")
+        assert len(requests) == 1
+        restored = type(login_context.auth)(login_context.twitch)
+        await restored._validate()
+        assert restored.access_token == "fixture_token"
+        assert restored.user_id == 42
+        assert len(fake_browser) == 1
+        assert len(requests) == 2
+
+    asyncio.run(run())
+
+
+def test_legacy_device_code_selects_upstream_oauth():
+    result = subprocess.run(
+        [sys.executable, "-c", """
+import os, sys, types
+sys.argv[0] = 'main_webui.py'
+os.environ['WEBUI_TWITCH_LOGIN'] = 'device-code'
+sys.modules['websocket'] = types.SimpleNamespace(WebsocketPool=object)
+sys.modules['gui'] = types.SimpleNamespace(GUIManager=object)
+import twitch
+import webui.patches
+assert twitch._AuthState._browser_login is twitch._AuthState._oauth_login
+from webui.adapters.login_form import LoginFormAdapter
+assert not LoginFormAdapter(None).browser_login_enabled
+"""],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr

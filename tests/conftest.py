@@ -21,6 +21,8 @@ import types
 import sys
 from pathlib import Path
 
+import pytest
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # --- Fix 1: websocket module collision ----------------------------------------
@@ -35,3 +37,20 @@ sys.modules.setdefault("websocket", _ws_stub)
 # project entry point), which makes translate.py try writing language files
 # to the wrong directory.  Unconditionally override to the project root.
 sys.argv[0] = str(PROJECT_ROOT / "main_webui.py")
+
+
+@pytest.fixture(scope="session")
+def webui_auth_state():
+    """Load the real core login with the same WebUI patches as the entry point."""
+    with pytest.MonkeyPatch.context() as patch:
+        from webui import WebUIManager
+
+        gui = types.ModuleType("gui")
+        gui.GUIManager = WebUIManager
+        patch.setitem(sys.modules, "gui", gui)
+        patch.setattr(sys.modules["websocket"], "WebsocketPool", object, raising=False)
+        patch.setenv("WEBUI_TWITCH_LOGIN", "android-browser")
+        from twitch import _AuthState
+        import webui.patches  # noqa: F401
+
+    return _AuthState

@@ -1,0 +1,32 @@
+FROM astral/uv:python3.10-bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates tzdata openssl curl \
+        xvfb x11vnc novnc fonts-dejavu-core \
+    && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+        -o /usr/share/keyrings/google-chrome.asc \
+    && echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.asc] https://dl.google.com/linux/chrome/deb/ stable main' \
+        > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_LINK_MODE=copy \
+    PYTHONUNBUFFERED=1 \
+    WEBUI_HOST=0.0.0.0 \
+    WEBUI_BROWSER_PATH=/usr/bin/google-chrome-stable \
+    XDG_CONFIG_HOME=/tmp/.config \
+    XDG_CACHE_HOME=/tmp/.cache
+
+COPY pyproject.toml uv.lock .python-version ./
+RUN uv sync --no-cache --locked --group nicegui --group test --no-install-project
+COPY . .
+
+EXPOSE 5800
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD sh -c 'protocol=http; [ "${SECURE_CONNECTION:-0}" = "1" ] && protocol=https; \
+        curl -kfs --max-time 10 -o /dev/null "${protocol}://127.0.0.1:${WEBUI_PORT:-5800}/health"'
+CMD ["uv", "run", "--no-sync", "python", "main_webui.py", "--stdlog"]

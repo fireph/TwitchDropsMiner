@@ -11,7 +11,7 @@ import socket
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from nicegui import app
 from starlette.staticfiles import StaticFiles
@@ -133,13 +133,19 @@ class BrowserDisplay:
                     await process.wait()
         self._processes.clear()
 
-    def _view(self, key: str) -> Response:
+    def _view(self, key: str, request: Request) -> Response:
         if not self._key or not secrets.compare_digest(key, self._key):
             return HTMLResponse("This login window has closed.", status_code=410)
+        host = request.url.hostname
+        if host and ":" in host:
+            host = f"[{host}]"
+        encrypted = request.url.scheme == "https"
         settings = urlencode(
             {
-                "host": "",
-                "path": f"/browser-login/socket/{key}",
+                "host": host,
+                "port": request.url.port or (443 if encrypted else 80),
+                "encrypt": "1" if encrypted else "0",
+                "path": f"browser-login/socket/{key}",
                 "autoconnect": "1",
                 "resize": "scale",
                 "view_only": "0",

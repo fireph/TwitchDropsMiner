@@ -15,7 +15,7 @@ When you start the WebUI:
 ## Installation
 
 [uv](https://docs.astral.sh/uv/) manages the Python environment and dependencies.
-The NiceGUI dependency group includes the Chromium driver. Fresh logins also need
+The shared dependencies include the browser driver. Fresh WebUI logins also need
 Chromium, Xvfb, x11vnc, and noVNC on the host; see the browser login setup below.
 
 ## Usage
@@ -48,14 +48,70 @@ To use the traditional desktop GUI, run the original entry point:
 uv run --group tkinter python main.py
 ```
 
+### Testing this checkout in Docker
+
+The development image runs `main_webui.py` directly with Python 3.10 on Debian
+`bookworm-slim`, with official Google Chrome, Xvfb, x11vnc, and noVNC in the same
+container. It runs as root and includes uncommitted changes. Google Chrome's Linux
+package requires amd64. This differs from the Alpine/Chromium
+[production container](https://github.com/fireph/docker-twitch-drops-miner/blob/main/Dockerfile.webui)
+so Chrome login can be tested. Release executables are built separately with
+`Dockerfile.build`. Build the development image from the repository root:
+
+```bash
+docker build -f Dockerfile.dev -t twitchdropsminer-login-dev .
+docker run -d --rm --name twitchdropsminer-login-dev \
+  -p 127.0.0.1:5800:5800 --shm-size=1g \
+  -e TZ=America/Los_Angeles \
+  -v twitchdropsminer-login-dev-config:/app/config \
+  twitchdropsminer-login-dev
+```
+
+Set `TZ` to your local time zone before running the command. Open
+`http://localhost:5800`. Test settings and Twitch login cookies persist in
+the named Docker volume. Rebuild the image and restart the container after code
+changes. Stop it with `docker stop twitchdropsminer-login-dev`.
+
+With Docker Desktop on Windows, enable **Settings → Resources → WSL Integration**
+for your distribution. Alternatively, use `docker.exe` in the commands above.
+
+To run the tests, including the real browser and viewer checks:
+
+```bash
+docker run --rm --shm-size=1g -e TDM_BROWSER_TESTS=1 \
+  twitchdropsminer-login-dev uv run --no-sync pytest tests/ -q
+```
+
+### Building release executables
+
+`Dockerfile.build` supports `LIBC=glibc` (the default, Debian Bookworm) and
+`LIBC=musl` (Alpine). CI builds both variants for the `nicegui` and `tkinter`
+backends on x86_64 and aarch64. The glibc executable requires glibc 2.36 or newer.
+
+To build and extract the WebUI executable archive for Debian/Ubuntu:
+
+```bash
+docker build -f Dockerfile.build --platform linux/amd64 \
+  --build-arg LIBC=glibc --build-arg UI_BACKEND=nicegui --build-arg ARCH=x86_64 \
+  -t twitchdropsminer-build .
+docker create --name twitchdropsminer-extract twitchdropsminer-build
+docker cp twitchdropsminer-extract:/app/Twitch.Drops.Miner.Linux.glibc.PyInstaller-nicegui-x86_64.zip .
+docker rm twitchdropsminer-extract
+```
+
+Select `LIBC=musl` for Alpine; those archives retain their existing
+`Twitch.Drops.Miner.Linux.musl.PyInstaller-<backend>-<arch>.zip` names. The new
+glibc archives use `glibc` in the same position. Both contain the existing
+`Twitch Drops Miner/Twitch Drops Miner (by DevilXD)` executable and `manual.txt`.
+Browsers and the WebUI viewer packages remain runtime dependencies.
+
 ### Default Chromium/noVNC login (Ubuntu)
 
 WebUI mode opens a real Chromium browser **inside a NiceGUI dialog** by default.
 Sign in on Twitch's page and complete its verification prompts there. The browser
-keeps the web client ID and adds the Android `delegate_client_id` to password-login
-requests. Only a token that Twitch validates as belonging to the Android app is
-returned to the existing miner. Twitch may reject delegation; this is an experiment,
-not a confirmed workaround.
+uses upstream's Android OAuth login flow. Upstream handles the login URL, captures
+the token from Twitch's redirect, validates its client ID, and saves the session.
+The WebUI supplies the embedded browser, cancel button, and ten-minute timeout.
 
 Install the virtual display and viewer, then a Chromium browser:
 
@@ -73,10 +129,11 @@ uv run --group nicegui python main_webui.py
 Open `http://localhost:5800` and click **Login**. **Close view** hides the dialog
 without cancelling; **Show login browser** reopens the same session. **Cancel login**
 closes the browser and allows another attempt. The attempt expires after ten minutes.
-Passwords and verification codes are entered in Twitch's page. The dashboard reports
-HTTP status/error codes and the token validation result without logging tokens or
-login request bodies. A successful Android token is saved through the miner's normal
-cookie mechanism, and mining resumes automatically.
+Passwords and verification codes are entered in Twitch's page. Login requests are
+handled by Twitch's page without WebUI interception or rewriting. Upstream's login
+messages appear in the dashboard and browser dialog. A successful Android token is
+saved through the miner's normal cookie mechanism, and mining resumes automatically.
+If upstream asks you to press **Login** again, use the button inside the dialog.
 
 The embedded browser includes the standard noVNC toolbar. Open it using the handle
 on the left edge, then select **Clipboard** to paste text from your computer. Click
@@ -99,8 +156,7 @@ Configuration:
 - `PLAYWRIGHT_BROWSERS_PATH` selects a non-default Playwright browser cache.
 - `WEBUI_NOVNC_PATH` overrides `/usr/share/novnc`.
 
-The normal NiceGUI dependency group installs the pinned Zendriver dependency.
-`bash webui/run_android_login.sh` remains a convenience launcher for this flow.
+The shared dependencies install Zendriver for both the WebUI and desktop entry points.
 Existing valid saved logins are restored normally and skip this flow. Do not delete
 working credentials just to test it; use a separate checkout if you need to preserve
 an existing session. To select the legacy login explicitly, run:
@@ -109,18 +165,13 @@ an existing session. To select the legacy login explicitly, run:
 WEBUI_TWITCH_LOGIN=device-code uv run --group nicegui python main_webui.py
 ```
 
-The tkinter entry point uses its original login flow.
-
-For the experiment, use password login rather than a social provider or passkey:
-only `/protected_login` and `/protected_login/shim` are modified. A rejection can mean
-Twitch disallows delegation in this context or that modifying the protected request
-invalidates its integrity checks; it does not establish that all Android login is
-impossible.
+The tkinter entry point uses the same upstream browser login flow in a desktop window.
 
 If a downloaded Chromium cannot start on Ubuntu with a "No usable sandbox" error,
-use a browser installed at a path covered by Ubuntu's AppArmor policy. This VM's
-Chrome for Testing is installed at `/opt/google/chrome/chrome`, using Ubuntu's
-existing Chrome policy. The experiment keeps Chromium's sandbox enabled.
+use a browser installed at a path covered by Ubuntu's AppArmor policy and select
+it with `WEBUI_BROWSER_PATH`. The WebUI keeps Zendriver's default sandbox
+configuration. In the development Docker image, Zendriver disables the browser
+sandbox because the container runs as root.
 
 ## Configuration
 

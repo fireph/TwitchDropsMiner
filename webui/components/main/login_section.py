@@ -93,7 +93,9 @@ class LoginSection:
                             _("gui", "login", "button"),
                             on_click=self._manager.login.confirm,
                         ).bind_visibility_from(
-                            self, "_login_state", backward=lambda s: s == "required"
+                            self,
+                            "_login_state",
+                            backward=lambda s: s in ("required", "logging_in"),
                         )
                         ui.button(
                             _("webui", "login", "cancel_browser"),
