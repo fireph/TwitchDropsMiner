@@ -3,4 +3,3 @@ nicegui>=3.11.1,<4.0.0
 pwdlib[argon2]
 PyJWT
 slowapi
-zendriver==0.17.0
