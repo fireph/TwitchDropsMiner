@@ -13,6 +13,7 @@ import settings as _settings
 import inventory as _inventory
 
 import webui.translations  # noqa
+import webui.patches_finishable  # noqa
 
 _settings.default_settings["priority_link_override"] = False  # type: ignore[typeddict-unknown-key]
 
