@@ -7,6 +7,7 @@ from yarl import URL
 
 from translate import _
 from constants import PriorityMode, State
+from webui import themes
 from webui.html_utils import request_notification_permission_js
 
 if TYPE_CHECKING:
@@ -47,13 +48,14 @@ class GeneralSection:
                 ).classes("w-full text-xs").props("dense").bind_value_from(_, "current")
 
                 with ui.row().classes("items-center gap-2 text-xs"):
-                    ui.label(_("gui", "settings", "general", "dark_mode")).classes(
-                        "flex-1"
-                    )
-                    ui.switch(
-                        value=settings.dark_mode,
-                        on_change=lambda e: manager.set_dark_mode(e.value),
-                    ).bind_value_from(settings, "dark_mode")
+                    ui.label(
+                        _("webui", "settings", "general", "theme")
+                    ).classes("flex-1")
+                    ui.select(
+                        options=GeneralSection._theme_options(),
+                        value=themes.resolve(settings).name,
+                        on_change=lambda e: manager.set_theme(e.value),
+                    ).classes("w-full text-xs").props("dense")
 
                 with ui.row().classes("items-center gap-2 text-xs"):
                     ui.label(
@@ -200,4 +202,12 @@ class GeneralSection:
             PriorityMode.LOW_AVBL_FIRST: _(
                 "gui", "settings", "priority_modes", "low_availability"
             ),
+        }
+
+    @staticmethod
+    def _theme_options() -> dict:
+        return {
+            "light": _("webui", "settings", "general", "theme_light"),
+            "dark": _("webui", "settings", "general", "theme_dark"),
+            "oled": _("webui", "settings", "general", "theme_oled"),
         }
