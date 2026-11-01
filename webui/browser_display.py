@@ -139,12 +139,12 @@ class BrowserDisplay:
         host = request.url.hostname
         if host and ":" in host:
             host = f"[{host}]"
-        encrypted = request.url.scheme == "https"
         settings = urlencode(
             {
                 "host": host,
-                "port": request.url.port or (443 if encrypted else 80),
-                "encrypt": "1" if encrypted else "0",
+                # noVNC chooses WS/WSS from the public page, which may be HTTPS
+                # even when a reverse proxy connects to this backend over HTTP.
+                "port": request.url.port or "",
                 "path": f"browser-login/socket/{key}",
                 "autoconnect": "1",
                 "resize": "scale",

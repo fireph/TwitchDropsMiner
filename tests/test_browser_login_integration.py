@@ -167,8 +167,10 @@ def test_viewer_websocket_is_scoped_to_active_attempt(monkeypatch):
     asyncio.run(run())
 
 
-def test_novnc_page_connects_in_chromium(monkeypatch):
+@pytest.mark.parametrize("tls_proxy", [False, True])
+def test_novnc_page_connects_in_chromium(monkeypatch, tmp_path, tls_proxy):
     import socket
+    import subprocess
 
     import uvicorn
     import zendriver as zd
@@ -178,6 +180,22 @@ def test_novnc_page_connects_in_chromium(monkeypatch):
 
     api = FastAPI()
     monkeypatch.setattr(browser_display, "app", api)
+    tls_options = {}
+    if tls_proxy:
+        key, cert = tmp_path / "key.pem", tmp_path / "cert.pem"
+        subprocess.run(
+            ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+             "-keyout", str(key), "-out", str(cert), "-subj", "/CN=localhost",
+             "-days", "1"],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        tls_options = {"ssl_keyfile": str(key), "ssl_certfile": str(cert)}
+
+        @api.middleware("http")
+        async def http_backend(request, call_next):
+            # Model TLS termination: the browser sees HTTPS, the app sees HTTP.
+            request.scope["scheme"] = "http"
+            return await call_next(request)
 
     async def run():
         display = browser_display.BrowserDisplay()
@@ -185,7 +203,7 @@ def test_novnc_page_connects_in_chromium(monkeypatch):
             listener.bind(("127.0.0.1", 0))
             listener.listen()
             port = listener.getsockname()[1]
-            server = uvicorn.Server(uvicorn.Config(api, log_level="error"))
+            server = uvicorn.Server(uvicorn.Config(api, log_level="error", **tls_options))
             server_task = asyncio.create_task(server.serve(sockets=[listener]))
             try:
                 while not server.started:
@@ -193,9 +211,11 @@ def test_novnc_page_connects_in_chromium(monkeypatch):
                 async with display:
                     async def connect_viewer():
                         browser = await zd.start()
-                        tab = await browser.get(
-                            f"http://127.0.0.1:{port}{display.view_url}"
-                        )
+                        tab = await browser.get("about:blank")
+                        if tls_proxy:
+                            await tab.send(zd.cdp.security.set_ignore_certificate_errors(True))
+                        scheme = "https" if tls_proxy else "http"
+                        await tab.get(f"{scheme}://127.0.0.1:{port}{display.view_url}")
                         await tab.select("#noVNC_container", timeout=10)
                         for _ in range(100):
                             if await tab.evaluate(

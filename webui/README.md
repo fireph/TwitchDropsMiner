@@ -147,6 +147,10 @@ viewer and WebSocket are served through the existing WebUI port, including HTTPS
 when configured. An unguessable per-attempt key and a same-origin check restrict
 viewer WebSockets. No additional port needs forwarding.
 
+When a reverse proxy terminates HTTPS, TDM can keep serving HTTP internally.
+The viewer uses the public page's scheme for its WebSocket connection. Configure
+the proxy to preserve the public `Host` header and forward WebSocket upgrades.
+
 Configuration:
 
 - `WEBUI_TWITCH_LOGIN=android-browser` is the default; no environment variable is needed.
