@@ -1,9 +1,6 @@
 {
     "webui": {
         "settings": {
-            "advanced": {
-                "priority_link_override": "Min niet-gekoppelde games uit de prioriteitenlijst: "
-            },
             "general": {
                 "language": "Taal: ",
                 "invalid_proxy": "Ongeldige proxy-URL"

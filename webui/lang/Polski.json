@@ -1,9 +1,6 @@
 {
     "webui": {
         "settings": {
-            "advanced": {
-                "priority_link_override": "Wydobywaj niepołączone gry z listy priorytetów: "
-            },
             "general": {
                 "language": "Język: ",
                 "invalid_proxy": "Nieprawidłowy URL proxy"

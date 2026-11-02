@@ -125,16 +125,18 @@ class GeneralSection:
                         ),
                     ).bind_value_from(settings, "available_drops_check")
 
-                with ui.row().classes("items-center gap-2 text-xs"):
-                    ui.label(
-                        _("webui", "settings", "advanced", "priority_link_override")
-                    ).classes("flex-1")
-                    ui.switch(
-                        value=settings.priority_link_override,
-                        on_change=lambda e: GeneralSection._set_and_save(
-                            settings, "priority_link_override", e.value
-                        ),
-                    ).bind_value_from(settings, "priority_link_override")
+                ui.label(
+                    _("webui", "settings", "advanced", "unlinked_mode")
+                ).classes("text-xs")
+                ui.select(
+                    options=GeneralSection._unlinked_mode_options(),
+                    value=settings.unlinked_mode,
+                    on_change=lambda e: GeneralSection._set_and_save(
+                        settings, "unlinked_mode", e.value
+                    ),
+                ).classes("w-full text-xs").props("dense").bind_value_from(
+                    settings, "unlinked_mode"
+                )
 
             with ui.card().props("flat bordered").classes("w-full q-pa-sm"):
                 ui.label(_("gui", "settings", "reload_text")).classes("text-xs")
@@ -187,6 +189,13 @@ class GeneralSection:
         except Exception:
             return False
         return url.host is not None and url.port is not None
+
+    @staticmethod
+    def _unlinked_mode_options() -> dict:
+        return {
+            mode: _("webui", "settings", "advanced", "unlinked_modes", mode)
+            for mode in ("off", "priority", "all")
+        }
 
     @staticmethod
     def _priority_mode_options() -> dict:

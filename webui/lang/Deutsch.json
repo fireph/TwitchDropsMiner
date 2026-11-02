@@ -1,9 +1,6 @@
 {
     "webui": {
         "settings": {
-            "advanced": {
-                "priority_link_override": "Unverknüpfte Spiele aus der Prioritätsliste abbauen: "
-            },
             "general": {
                 "language": "Sprache: ",
                 "invalid_proxy": "Ungültige Proxy-URL"

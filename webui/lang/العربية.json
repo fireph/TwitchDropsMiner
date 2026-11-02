@@ -1,9 +1,6 @@
 {
     "webui": {
         "settings": {
-            "advanced": {
-                "priority_link_override": "تعدين الألعاب غير المرتبطة من قائمة الأولوية: "
-            },
             "general": {
                 "language": "اللغة: ",
                 "invalid_proxy": "عنوان proxy غير صالح"

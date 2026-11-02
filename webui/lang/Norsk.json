@@ -1,9 +1,6 @@
 {
     "webui": {
         "settings": {
-            "advanced": {
-                "priority_link_override": "Min ulenkede spill fra prioritetslisten: "
-            },
             "general": {
                 "language": "Språk: ",
                 "invalid_proxy": "Ugyldig proxy-URL"

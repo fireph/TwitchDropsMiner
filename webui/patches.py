@@ -14,22 +14,47 @@ import inventory as _inventory
 
 import webui.translations  # noqa
 
+UNLINKED_OFF = "off"
+UNLINKED_PRIORITY = "priority"
+UNLINKED_ALL = "all"
+UNLINKED_MODES = (UNLINKED_OFF, UNLINKED_PRIORITY, UNLINKED_ALL)
+
+# "" means no choice saved yet; Settings.__init__ below fills it in from the old checkbox.
+_settings.default_settings["unlinked_mode"] = ""  # type: ignore[typeddict-unknown-key]
+# Only read for that migration. Kept in the defaults so json_load doesn't drop it.
 _settings.default_settings["priority_link_override"] = False  # type: ignore[typeddict-unknown-key]
+
+_original_settings_init = _settings.Settings.__init__
+
+
+def _settings_init(self, args) -> None:
+    _original_settings_init(self, args)
+    if self._settings["unlinked_mode"] not in UNLINKED_MODES:
+        self._settings["unlinked_mode"] = (
+            UNLINKED_PRIORITY
+            if self._settings["priority_link_override"]
+            else UNLINKED_OFF
+        )
+
+
+_settings.Settings.__init__ = _settings_init  # type: ignore[method-assign]
 
 
 def _priority_link_override_get(self) -> bool:
     """
-    True when the user has enabled the advanced "priority link override"
-    setting and explicitly added this (unlinked) game to the Priority List.
+    True when the "Mine unlinked games" setting makes this (unlinked) campaign
+    eligible: "priority" for games on the Priority List, "all" for every game
+    that isn't on the Exclude list.
 
     This does not change Twitch's reported account-link state; Twitch may
     still refuse to award drops for a campaign the account isn't linked to.
     """
-    return (
-        self._twitch.settings.priority_link_override
-        and not self.linked
-        and self.game.name in self._twitch.settings.priority
-    )
+    settings = self._twitch.settings
+    if self.linked or settings.unlinked_mode == UNLINKED_OFF:
+        return False
+    if settings.unlinked_mode == UNLINKED_ALL:
+        return self.game.name not in settings.exclude
+    return self.game.name in settings.priority
 
 
 setattr(

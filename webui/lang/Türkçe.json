@@ -1,9 +1,6 @@
 {
     "webui": {
         "settings": {
-            "advanced": {
-                "priority_link_override": "Bağlanmamış oyunları Öncelik Listesinden kaz: "
-            },
             "general": {
                 "language": "Dil: ",
                 "invalid_proxy": "Geçersiz proxy URL'si"
