@@ -30,3 +30,4 @@ test = [
 
 [tool.uv]
 package = false
+constraint-dependencies = ["uvloop>=0.23.0"]
