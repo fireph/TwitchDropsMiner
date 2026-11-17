@@ -46,12 +46,12 @@ AppDir:
     arch:
       - '{{ARCH_APT}}'
     sources:
-      - sourceline: deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy main
-      - sourceline: deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-updates main
-      - sourceline: deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-security main
-      - sourceline: deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main
-      - sourceline: deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main
-      - sourceline: deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-security main
+      - sourceline: deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ noble main
+      - sourceline: deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ noble-updates main
+      - sourceline: deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ noble-security main
+      - sourceline: deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble main
+      - sourceline: deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-updates main
+      - sourceline: deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-security main
         key_url: http://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C
 
     include:
@@ -118,7 +118,6 @@ AppDir:
       - usr/lib/libXft.la
       - usr/lib/pkgconfig
       - usr/lib/python3
-      - usr/lib/python3.11
       - usr/lib/python3*/pydoc_data
       - usr/lib/python3*/test
       - usr/lib/python3*/unittest
@@ -149,7 +148,7 @@ AppDir:
     env:
       PATH: '${APPDIR}/usr/bin:${PATH}'
       PYTHONHOME: '${APPDIR}/usr'
-      PYTHONPATH: '${APPDIR}/usr/lib/python3.10/tkinter:${APPDIR}/usr/lib/python3.10/site-packages'
+      PYTHONPATH: '${APPDIR}/usr/lib/python3.12/tkinter:${APPDIR}/usr/lib/python3.12/site-packages'
       APPDIR_LIBRARY_PATH: '${APPDIR}/usr/lib:${APPDIR}/usr/lib/{{ARCH}}-linux-gnu:${APPDIR}/lib/{{ARCH}}-linux-gnu'
       TCL_LIBRARY: '${APPDIR}/usr/share/tcltk/tcl8.6'
       TK_LIBRARY: '${APPDIR}/usr/lib/tcltk/{{ARCH}}-linux-gnu/tk8.6'
