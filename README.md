@@ -60,7 +60,7 @@ Every several seconds, the application pretends to watch a particular stream by 
 > The time remaining timer always countdowns a single minute and then stops - it is then restarted only after the application redetermines the remaining time. This "redetermination" can happen at any time Twitch decides to report on the drop's progress, but not later than 20 seconds after the timer reaches zero. The seconds timer is only an approximation and does not represent nor affect actual mining speed. The time variations are due to Twitch sometimes not reporting drop progress at all, or reporting progress for the wrong drop - these cases have all been accounted for in the application though.
 
 > [!NOTE]  
-> The source code requires Python 3.10 or higher to run.
+> The source code requires Python 3.12 or higher to run.
 
 ### Notes about the Windows build:
 

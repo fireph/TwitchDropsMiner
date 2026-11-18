@@ -4,11 +4,14 @@ on:
   push:
     branches:
       - "webui"
+      - "test/**"
+      - "work/**"
+      - "fix/**"
   pull_request:
   workflow_dispatch:
 
 env:
-  PYTHON_VERSION: "3.10"
+  PYTHON_VERSION: "3.13"
   USE_UPX: false
 
 jobs:
@@ -42,8 +45,12 @@ jobs:
           fi
 
   test:
-    name: Test
+    name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14", "3.15"]
 
     steps:
       - name: Checkout code
@@ -52,7 +59,7 @@ jobs:
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v10.3.1
         with:
-          python-version: ${{env.PYTHON_VERSION}}
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
 
       - name: Run tests
@@ -261,19 +268,19 @@ jobs:
           path: Twitch.Drops.Miner.Linux.PyInstaller-${{matrix.arch}}.zip
 
   linux-appimage:
-    if: false
     name: Linux (AppImage) (${{matrix.arch}})
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: x86_64
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
           - arch: aarch64
-            runner: ubuntu-22.04-arm
+            runner: ubuntu-24.04-arm
     runs-on: ${{matrix.runner}}
     needs:
       - validate
+      - test
 
     steps:
       - name: Checkout code
@@ -289,20 +296,35 @@ jobs:
         run: |
           sed -ri "s/^__version__\s*=\s*\"[^\"]+/\0.${{steps.vars.outputs.sha_short}}/" version.py
 
+      - name: Install AppImage build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes \
+            libfontconfig-dev \
+            libfreetype-dev \
+            libx11-dev \
+            libxrender-dev \
+            pkg-config \
+            x11proto-dev \
+            xutils-dev
+
       - name: Install appimage-builder
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install wheel
-          python3 -m pip install setuptools setuptools_scm
-          # TODO: Switch to a stable release if/when a version newer than 1.1.0 is released.
-          python3 -m pip install git+https://github.com/AppImageCrafters/appimage-builder.git@1a8794d3c89f288fbd82b9accd7c0b74611147d5
+          python3 --version
+          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
+          python3 -m venv .appimage-builder-venv
+          .appimage-builder-venv/bin/python -m pip install --upgrade pip
+          .appimage-builder-venv/bin/python -m pip install wheel setuptools setuptools_scm
+          # Pin upstream AppImageBuilder with the AppRun v2 linker fix from PR #383.
+          # Switch to a stable release once one containing this fix is published.
+          .appimage-builder-venv/bin/python -m pip install git+https://github.com/AppImageCrafters/appimage-builder.git@7f707edc0325ccba83c7906b1c604376531e749b
+          echo "$GITHUB_WORKSPACE/.appimage-builder-venv/bin" >> "$GITHUB_PATH"
 
       - name: Create AppImage
         env:
           ARCH: ${{matrix.arch}}
           ARCH_APT: ${{matrix.arch == 'x86_64' && 'amd64' || 'arm64'}}
           APP_VERSION: ${{steps.vars.outputs.app_version}}.${{steps.vars.outputs.sha_short}}
-          PYTHON_VERSION: ${{env.PYTHON_VERSION}}
         run: |
           appimage-builder --recipe appimage/AppImageBuilder.yml
 
@@ -390,7 +412,7 @@ jobs:
 
   update_releases_page:
     name: Upload builds to Releases
-    if: github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/webui' && github.event_name != 'pull_request'
     needs:
       # - windows
       # - linux-pyinstaller

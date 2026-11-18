@@ -38,8 +38,8 @@ if __name__ == "__main__":
     # import tracemalloc
     # tracemalloc.start(3)
 
-    if sys.version_info < (3, 10):
-        raise RuntimeError("Python 3.10 or higher is required")
+    if sys.version_info < (3, 12):
+        raise RuntimeError("Python 3.12 or higher is required")
 
     # Suppress X11 Input Method registration on Linux to prevent
     # XWayland/Mutter lockups during heavy Tkinter layout updates.

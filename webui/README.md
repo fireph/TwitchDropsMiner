@@ -50,7 +50,7 @@ uv run --group tkinter python main.py
 
 ### Testing this checkout in Docker
 
-The development image runs `main_webui.py` directly with Python 3.10 on Debian
+The development image runs `main_webui.py` directly with Python 3.13 on Debian
 `bookworm-slim`, with official Google Chrome, Xvfb, x11vnc, and noVNC in the same
 container. It runs as root and includes uncommitted changes. Google Chrome's Linux
 package requires amd64. This differs from the Alpine/Chromium

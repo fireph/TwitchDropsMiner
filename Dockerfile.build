@@ -1,6 +1,6 @@
 ARG LIBC=glibc
 
-FROM astral/uv:python3.10-alpine AS base-musl
+FROM astral/uv:python3.13-alpine AS base-musl
 
 ARG UI_BACKEND=tkinter
 
@@ -26,7 +26,7 @@ RUN if [ "$UI_BACKEND" = "nicegui" ]; then \
             tcl-dev; \
     fi
 
-FROM astral/uv:python3.10-bookworm-slim AS base-glibc
+FROM astral/uv:python3.13-bookworm-slim AS base-glibc
 
 ARG UI_BACKEND=tkinter
 

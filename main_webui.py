@@ -61,8 +61,8 @@ if __name__ == "__main__":
 
     warnings.simplefilter("default", ResourceWarning)
 
-    if sys.version_info < (3, 10):
-        raise RuntimeError("Python 3.10 or higher is required")
+    if sys.version_info < (3, 12):
+        raise RuntimeError("Python 3.12 or higher is required")
 
     class ParsedArgs(argparse.Namespace):
         _verbose: int
