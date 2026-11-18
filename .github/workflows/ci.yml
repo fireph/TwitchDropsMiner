@@ -315,8 +315,9 @@ jobs:
           python3 -m venv .appimage-builder-venv
           .appimage-builder-venv/bin/python -m pip install --upgrade pip
           .appimage-builder-venv/bin/python -m pip install wheel setuptools setuptools_scm
-          # TODO: Switch to a stable release if/when a version newer than 1.1.0 is released.
-          .appimage-builder-venv/bin/python -m pip install git+https://github.com/AppImageCrafters/appimage-builder.git@1a8794d3c89f288fbd82b9accd7c0b74611147d5
+          # Pin upstream AppImageBuilder with the AppRun v2 linker fix from PR #383.
+          # Switch to a stable release once one containing this fix is published.
+          .appimage-builder-venv/bin/python -m pip install git+https://github.com/AppImageCrafters/appimage-builder.git@7f707edc0325ccba83c7906b1c604376531e749b
           echo "$GITHUB_WORKSPACE/.appimage-builder-venv/bin" >> "$GITHUB_PATH"
 
       - name: Create AppImage
